@@ -342,4 +342,38 @@ async function extractPage(mask = true, revealMenus = false) {
 
   section('VALIDATION AND FIELD DETAILS', controls.map(el => {
     const ref = refOf(el) || '(no-ref)';
-    const constraints
+    const constraints = ['required','min','max','minlength','maxlength','pattern','accept','multiple','step','aria-invalid'].filter(attr => el.hasAttribute(attr)).map(attr => `${attr}=${clean(el.getAttribute(attr) || 'true')}`);
+    const aria = ['aria-describedby','aria-errormessage','aria-autocomplete','aria-multiselectable'].filter(attr => el.hasAttribute(attr)).map(attr => `${attr}=${clean(el.getAttribute(attr))}`);
+    const described = (el.getAttribute('aria-describedby') || '').split(/\s+/).filter(Boolean).map(id => el.getRootNode().getElementById?.(id)).filter(Boolean).map(node => textOf(node, true)).filter(Boolean).join(' | ');
+    const error = (el.getAttribute('aria-errormessage') || '').split(/\s+/).filter(Boolean).map(id => el.getRootNode().getElementById?.(id)).filter(Boolean).map(node => textOf(node, true)).filter(Boolean).join(' | ');
+    return `${ref} | ${constraints.concat(aria).join(', ') || 'no-extra-constraints'}${described ? ` | help="${clean(described)}"` : ''}${error ? ` | error="${clean(error)}"` : ''}`;
+  }));
+
+  section('HEADINGS', all('h1,h2,h3,h4,h5,h6,[role="heading"]').filter(visible).map(el => `${el.tagName.toUpperCase()}${el.getAttribute('aria-level') ? ' level=' + clean(el.getAttribute('aria-level')) : ''} | ${clean(textOf(el))}`));
+  section('LINKS', all('a[href]').filter(visible).map(el => `${refOf(el) || '(no-ref)'} | "${clean(labelOf(el))}" → ${safeURL(el.getAttribute('href'))}`));
+  section('BUTTONS', all('button,[role="button"],input[type="submit"],input[type="button"],input[type="reset"]').filter(visible).map(el => `${refOf(el) || '(no-ref)'} | "${clean(labelOf(el))}" | ${stateBits(el).join(', ')}`));
+
+  output.push('\n[VISIBLE PAGE TEXT — STRUCTURED CONTROLS OMITTED TO REDUCE DUPLICATION]');
+  let textCount = 0;
+  for (const root of roots) {
+    const start = root === document ? document.body : root;
+    if (!start) continue;
+    const walker = document.createTreeWalker(start, NodeFilter.SHOW_TEXT);
+    for (let node; (node = walker.nextNode());) {
+      const parent = node.parentElement;
+      if (!parent || parent.closest(excludedTags) || parent.closest(structureSelector) || parent.closest(optionSelector) || insideSecret(parent) || !visible(parent)) continue;
+      const text = node.textContent.replace(/\s+/g, ' ').trim();
+      if (text) { output.push(clean(text)); textCount++; }
+    }
+  }
+  if (!textCount) output.push('(none)');
+
+  section('LANDMARKS AND DIALOGS', all('main,nav,aside,header,footer,[role="main"],[role="navigation"],[role="dialog"],[role="alertdialog"],[role="alert"],[role="status"],[role="tablist"],details').filter(visible).map(el => {
+    const kind = (el.getAttribute('role') || el.tagName).toUpperCase();
+    const open = el.tagName === 'DETAILS' ? ` | open=${el.open}` : '';
+    return `${kind} | "${clean(labelOf(el))}"${open}`;
+  }));
+
+  output.push('\n[FRAME LIMITS]', 'PagePack can map the webpage DOM and open shadow DOM, including off-screen rendered elements. It cannot inspect Brave/Chrome toolbar UI, closed shadow DOM, text rendered only in images/canvas, protected browser pages, or options/data the site has not loaded. Dropdown exploration is best-effort and may temporarily change UI state.');
+  return output.join('\n');
+}
