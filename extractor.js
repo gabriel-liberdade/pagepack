@@ -259,4 +259,87 @@ async function extractPage(mask = true, revealMenus = false) {
     `Title: ${clean(document.title)}`,
     `Captured: ${new Date().toISOString()}`,
     `Interactive elements mapped: ${interactiveElements.length}`,
-    '\n[INTE
+    '\n[INTERACTIVE MAP — USE THESE REFERENCES TO GUIDE THE USER]'
+  ];
+
+  if (!interactiveElements.length) output.push('(none)');
+  for (const el of interactiveElements) {
+    const ref = refOf(el);
+    const label = clean(labelOf(el));
+    const state = stateBits(el);
+    const ids = identifierBits(el);
+    const group = groupLabel(el);
+    const parts = [`${ref} | ${typeOf(el)} | "${label}"`];
+    if (['INPUT', 'TEXTAREA', 'SELECT'].includes(el.tagName) || el.isContentEditable || ['textbox','searchbox','combobox','listbox','spinbutton','slider'].includes(el.getAttribute('role'))) parts.push(`value=${safeControlValue(el)}`);
+    if (el.tagName === 'A' && el.hasAttribute('href')) parts.push(`href=${safeURL(el.getAttribute('href'))}`);
+    if (el.tagName === 'SELECT') parts.push(`options=${el.options.length}`);
+    const linked = el.matches(dropdownSelector) ? linkedOptionsFor(el) : [];
+    const revealed = revealSnapshots.get(el) || [];
+    if (el.matches(dropdownSelector)) parts.push(`custom-options-known=${Math.max(linked.length, revealed.length)}`);
+    if (state.length) parts.push(state.join(', '));
+    if (ids.length) parts.push(ids.join(', '));
+    if (group) parts.push(`group="${clean(group)}"`);
+    output.push(parts.join(' | '));
+  }
+
+  function section(name, items) {
+    output.push(`\n[${name}]`, ...(items.length ? items : ['(none)']));
+  }
+
+  section('FORMS', all('form').filter(visible).map((form, index) => {
+    const submitters = [...form.querySelectorAll('button,input[type="submit"],input[type="image"]')].filter(visible).map(el => refOf(el) || clean(labelOf(el))).filter(Boolean);
+    const method = clean((form.getAttribute('method') || 'get').toUpperCase());
+    const action = form.getAttribute('action') ? safeURL(form.getAttribute('action')) : safeURL(location.href);
+    return `FORM ${index + 1} | label="${clean(form.getAttribute('aria-label') || form.getAttribute('name') || form.id || '(unlabeled)')}" | method=${method} | action=${action} | submit-controls=${submitters.join(', ') || '(none)'}`;
+  }));
+
+  section('NATIVE SELECT OPTIONS', controls.filter(el => el.tagName === 'SELECT').flatMap(el => {
+    const ref = refOf(el) || '(no-ref)';
+    const sensitive = insideSecret(el);
+    const personal = mask && personalKey.test(contextOf(el));
+    const summary = `${ref} SELECT | "${clean(labelOf(el))}" | options=${el.options.length}${el.multiple ? ' | multiple' : ''}`;
+    if (sensitive) return [summary, `  ${omitted}`];
+    return [summary, ...[...el.options].map((option, index) => {
+      const group = option.closest('optgroup');
+      const label = personal ? masked : clean(option.text);
+      const value = personal ? masked : clean(option.value);
+      return `  ${ref}.O${index + 1} | "${label}" | value=${value} | ${option.selected ? 'selected' : 'not-selected'}${option.disabled || group?.disabled ? ' | disabled' : ''}${group ? ' | group="' + clean(group.label) + '"' : ''}`;
+    })];
+  }));
+
+  const exportedOptions = new Set();
+  const customOptionLines = [];
+  const dropdowns = uniqueElements(all(dropdownSelector).filter(visible));
+  for (const dropdown of dropdowns) {
+    const ref = refOf(dropdown) || '(no-ref)';
+    const current = linkedOptionsFor(dropdown);
+    current.forEach(option => exportedOptions.add(option));
+    const currentData = current.map(option => optionData(option, contextOf(dropdown)));
+    const revealedData = revealSnapshots.get(dropdown) || [];
+    const merged = [];
+    const seen = new Set();
+    for (const item of [...currentData, ...revealedData]) {
+      const key = optionKey(item);
+      if (!seen.has(key)) { seen.add(key); merged.push(item); }
+    }
+    customOptionLines.push(`${ref} DROPDOWN | "${clean(labelOf(dropdown))}" | options-known=${merged.length}${revealedData.length ? ' | explored=yes' : ''}`);
+    if (insideSecret(dropdown)) customOptionLines.push(`  ${omitted}`);
+    else if (!merged.length) customOptionLines.push('  No options are currently available in the DOM. Enable dropdown exploration, or open the menu manually and export again.');
+    else merged.forEach((item, index) => customOptionLines.push(`  ${ref}.O${index + 1} | "${item.text || '(no text)'}"${item.value ? ` | value=${item.value}` : ''} | ${item.selected ? 'selected' : 'not-selected'} | ${item.visible ? 'visible' : 'hidden/menu-closed'}${item.disabled ? ' | disabled' : ''}`));
+  }
+
+  const detachedOptions = all(optionSelector).filter(option => !exportedOptions.has(option));
+  if (detachedOptions.length) {
+    customOptionLines.push('UNASSOCIATED CUSTOM OPTIONS PRESENT IN DOM');
+    detachedOptions.forEach((option, index) => {
+      const item = optionData(option, contextOf(option));
+      customOptionLines.push(`  UO${index + 1} | "${item.text || '(no text)'}"${item.value ? ` | value=${item.value}` : ''} | ${item.selected ? 'selected' : 'not-selected'} | ${item.visible ? 'visible' : 'hidden/menu-closed'}${item.disabled ? ' | disabled' : ''}`);
+    });
+  }
+  section('CUSTOM DROPDOWN OPTIONS', customOptionLines);
+
+  section('DROPDOWN EXPLORATION NOTES', revealNotes);
+
+  section('VALIDATION AND FIELD DETAILS', controls.map(el => {
+    const ref = refOf(el) || '(no-ref)';
+    const constraints
