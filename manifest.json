@@ -1,0 +1,10 @@
+{
+  "manifest_version": 3,
+  "name": "PagePack",
+  "version": "2.0.0",
+  "description": "Turn the current webpage into structured, AI-friendly context with interactive elements, states and available options.",
+  "permissions": ["activeTab", "scripting", "clipboardWrite", "webNavigation"],
+  "host_permissions": ["http://*/*", "https://*/*"],
+  "action": { "default_popup": "popup.html", "default_title": "PagePack" },
+  "content_security_policy": { "extension_pages": "script-src 'self'; object-src 'none'; connect-src 'none'" }
+}
