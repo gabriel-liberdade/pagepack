@@ -79,4 +79,85 @@ async function extractPage(mask = true, revealMenus = false) {
 
   const controls = all('input:not([type="hidden"]),select,textarea').filter(visible);
   const customControls = all(customSelector).filter(el => visible(el) && !el.matches('input,select,textarea,button') && !(el.isContentEditable && el.parentElement?.isContentEditable));
-  for (const el of [...controls, ...customContro
+  for (const el of [...controls, ...customControls]) {
+    if (el.type === 'password' || secretKey.test(contextOf(el))) sensitiveElements.add(el);
+  }
+
+  const replacements = [];
+  if (mask) for (const el of controls) {
+    if (!sensitiveElements.has(el) && el.type !== 'file' && (personalKey.test(contextOf(el)) || el.tagName === 'TEXTAREA' || ['text','email','tel','search','url','number','date','datetime-local'].includes(el.type)) && el.value) replacements.push(el.value);
+  }
+  if (mask) for (const el of customControls) {
+    const role = el.getAttribute('role');
+    if (!insideSecret(el) && (personalKey.test(contextOf(el)) || el.isContentEditable || role === 'textbox' || role === 'searchbox')) {
+      const value = el.getAttribute('aria-valuetext') || ('value' in el ? el.value : '') || textOf(el);
+      if (value) replacements.push(value);
+    }
+  }
+  replacements.sort((a, b) => b.length - a.length);
+
+  function clean(value) {
+    let text = String(value ?? '');
+    text = text.replace(/\bBearer\s+[A-Za-z0-9._~+\/-]+=*/gi, omitted)
+      .replace(/\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b/g, omitted)
+      .replace(/\b(?:sk-[A-Za-z0-9_-]{12,}|AKIA[A-Z0-9]{16})\b/g, omitted)
+      .replace(/((?:password|passwd|senha|token|secret|api[-_ ]?key|authorization|credencial|login|username)\s*[:=]\s*)[^\s,;]+/gi, '$1' + omitted);
+    if (!mask) return text;
+    for (const value of replacements) text = text.split(value).join(masked);
+    return text.replace(/[A-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, '[EMAIL MASKED]')
+      .replace(/\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi, '[UUID MASKED]')
+      .replace(/((?:protocolo|n[uú]mero\s+(?:da\s+)?solicita[cç][aã]o)\s*[:#=]?\s*)[a-z0-9][a-z0-9./_-]*\d[a-z0-9./_-]*/gi, '$1[PROTOCOL MASKED]')
+      .replace(/\b\d{2}\.?\d{3}\.?\d{3}\/?\d{4}-?\d{2}\b/g, '[CNPJ MASKED]')
+      .replace(/\b\d{3}\.?\d{3}\.?\d{3}-?\d{2}\b/g, '[CPF MASKED]')
+      .replace(/(?:\+?55[\s.-]*)?\(?\b\d{2}\)?[\s.-]*\d{4,5}[\s.-]*\d{4}\b/g, '[PHONE MASKED]')
+      .replace(/\b\d{4,5}[- ]\d{4}\b/g, '[PHONE MASKED]')
+      .replace(/\b\d{6,}\b/g, '[NUMBER/ID MASKED]');
+  }
+
+  function safeURL(value) {
+    try {
+      const url = new URL(value, location.href);
+      if (!['http:', 'https:'].includes(url.protocol)) return '[non-HTTP URL omitted]';
+      url.username = url.password = '';
+      let secretPathValue = false;
+      const pathname = url.pathname.split('/').map(segment => {
+        let decoded;
+        try { decoded = decodeURIComponent(segment); } catch { decoded = segment; }
+        if (secretPathValue) { secretPathValue = false; return '[EXCLUDED]'; }
+        if (secretKey.test(decoded) || /\beyJ|^sk-/.test(decoded)) { secretPathValue = true; return '[EXCLUDED]'; }
+        if (mask && (/\d/.test(decoded) || decoded.length >= 24 || /@/.test(decoded))) return '[ID MASKED]';
+        return clean(decoded);
+      }).join('/');
+      return clean(url.origin) + pathname + (url.search ? '?[PARAMETERS OMITTED]' : '') + (url.hash ? '#[FRAGMENT OMITTED]' : '');
+    } catch { return '[invalid URL]'; }
+  }
+
+  function stateBits(el) {
+    const bits = [];
+    const disabled = !!el.disabled || el.getAttribute('aria-disabled') === 'true';
+    bits.push(disabled ? 'disabled' : 'enabled');
+    if ('checked' in el && ['checkbox', 'radio'].includes(el.type)) bits.push(el.checked ? 'checked' : 'unchecked');
+    if (el.hasAttribute('aria-checked')) bits.push(`aria-checked=${clean(el.getAttribute('aria-checked'))}`);
+    if (el.hasAttribute('aria-selected')) bits.push(`aria-selected=${clean(el.getAttribute('aria-selected'))}`);
+    if (el.hasAttribute('aria-expanded')) bits.push(`expanded=${clean(el.getAttribute('aria-expanded'))}`);
+    if (el.hasAttribute('aria-pressed')) bits.push(`pressed=${clean(el.getAttribute('aria-pressed'))}`);
+    if (el.hasAttribute('aria-current')) bits.push(`current=${clean(el.getAttribute('aria-current'))}`);
+    if (el.hasAttribute('aria-invalid')) bits.push(`invalid=${clean(el.getAttribute('aria-invalid'))}`);
+    if (el.readOnly || el.getAttribute('aria-readonly') === 'true') bits.push('readonly');
+    if (el.required || el.getAttribute('aria-required') === 'true') bits.push('required');
+    return bits;
+  }
+
+  function safeControlValue(el) {
+    const context = contextOf(el);
+    const role = el.getAttribute('role') || '';
+    if (insideSecret(el) || secretKey.test(context)) return omitted;
+    if (el.type === 'file') return '[FILE: contents/path not collected]';
+    if (el.tagName === 'SELECT') {
+      return [...el.selectedOptions].map(option => `${clean(option.text)} (value=${clean(option.value)})`).join('; ') || '(no selection)';
+    }
+    const personal = mask && (personalKey.test(context) || el.tagName === 'TEXTAREA' || ['text','email','tel','search','url','number','date','datetime-local'].includes(el.type) || role === 'textbox' || role === 'searchbox' || el.isContentEditable);
+    if (personal) return masked;
+    const activeId = el.getAttribute('aria-activedescendant');
+    const active = activeId ? el.getRootNode().getElementById?.(activeId) : null;
+    const value = el.getAttribute('aria-valuetext') || ('value' in el ? el.value : '') || (active ? textOf(active, tr
