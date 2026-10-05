@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>PagePack</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <h1>PagePack</h1>
+  <p>Transforme a página atual em contexto estruturado para colar em qualquer IA.</p>
+
+  <label class="option">
+    <input id="mask" type="checkbox" checked>
+    Mascarar dados pessoais
+  </label>
+  <p class="note">Senhas, tokens e credenciais reconhecíveis são sempre excluídos.</p>
+
+  <label class="option experimental">
+    <input id="reveal" type="checkbox">
+    Explorar dropdowns customizados
+  </label>
+  <p class="note">Experimental: tenta abrir apenas comboboxes/listboxes sem opções carregadas para descobrir alternativas sob demanda. Pode alterar temporariamente a interface da página.</p>
+
+  <button id="copy" type="button">Copiar PagePack</button>
+  <button id="save" type="button">Salvar TXT</button>
+  <p id="status" role="status" aria-live="polite">Nada é enviado automaticamente.</p>
+
+  <script src="extractor.js"></script>
+  <script src="frames.js"></script>
+  <script src="popup.js"></script>
+</body>
+</html>
