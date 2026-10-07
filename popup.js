@@ -2,6 +2,7 @@ const copyButton = document.getElementById('copy');
 const saveButton = document.getElementById('save');
 const status = document.getElementById('status');
 const maskCheckbox = document.getElementById('mask');
+const tabsCheckbox = document.getElementById('tabs');
 
 maskCheckbox.checked = localStorage.getItem('pagepack-mask-personal-data') === 'true';
 maskCheckbox.addEventListener('change', () => {
@@ -16,7 +17,8 @@ async function exportPage(action) {
     if (!tab?.id) throw new Error('Nenhuma aba disponível.');
     const mask = maskCheckbox.checked;
     const revealMenus = document.getElementById('reveal').checked;
-    const { text, count, missing } = await collectFrames(tab.id, mask, revealMenus);
+    const exploreTabs = tabsCheckbox.checked;
+    const { text, count, missing } = await collectFrames(tab.id, mask, revealMenus, exploreTabs);
     const summary = `${count} frame(s) exportado(s).${missing ? ` ${missing} frame(s) não capturado(s).` : ''}`;
 
     if (action === 'copy') {

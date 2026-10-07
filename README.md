@@ -18,6 +18,7 @@ Instead of exporting only page text, PagePack builds an **interactive map** of t
 - Native `<select>` elements with **all options**, including selected/disabled state and optgroups
 - Custom ARIA comboboxes/listboxes and options already present in the DOM
 - Optional best-effort exploration of custom dropdowns whose options are loaded only after opening the menu
+- Automatic exploration of recognized tabs, including JavaScript-driven and nested tab states, with best-effort restoration of the original state
 - Labels, placeholders, names, IDs, roles and useful ARIA relationships
 - Validation metadata such as required, min/max, pattern, maxlength and error/help references
 - Forms, submit controls, dialogs, landmarks, tabs and details elements
@@ -43,10 +44,11 @@ Screenshots are useful, but they can miss text, hidden select options, exact fie
 
 1. Open the webpage you want help with.
 2. Click the PagePack extension icon.
-3. Keep **Mask personal data** enabled unless you intentionally want the current values included.
-4. Optionally enable **Explore custom dropdowns** if the page uses menus whose options only appear after opening them.
-5. Click **Copy PagePack**.
-6. Paste into your AI assistant with `Ctrl+V` and ask what to click, select or type.
+3. Enable **Mask personal data** when you want ordinary personal values redacted. Recognizable credentials are excluded regardless.
+4. Leave **Explore tabs automatically** enabled to capture recognized tab states; disable it on a page if you do not want PagePack to interact with tabs.
+5. Optionally enable **Explore hidden menu options** if the page uses menus whose options only appear after opening them.
+6. Click **Copy PagePack**.
+7. Paste into your AI assistant with `Ctrl+V` and ask what to click, select or type.
 
 You can also save the output as a UTF-8 TXT file.
 
@@ -72,6 +74,12 @@ E021 DROPDOWN | "Visibility" | options-known=2
 
 This makes follow-up instructions much less ambiguous when a page contains repeated labels or several similar buttons.
 
+## Automatic tab exploration
+
+PagePack 2.1 can explore recognized tab interfaces instead of exporting only the tab that happens to be selected. It prioritizes ARIA tabs/tablists and common tab attributes, interacts only when the control has strong tab evidence, waits for tab/panel/DOM state to settle, captures each state, deduplicates identical content, limits nesting and total exploration, then attempts to restore the original tab and hash.
+
+The feature is enabled by default and can be turned off in the popup. It does not intentionally follow links to another page or click generic action buttons.
+
 ## Custom dropdown exploration
 
 Some modern sites do not create menu options until a dropdown is opened. PagePack has an **experimental, opt-in** mode that tries to click only recognized combobox/listbox controls that currently expose no options, waits briefly, records newly available options, and then attempts to close the menu with Escape.
@@ -86,7 +94,7 @@ PagePack runs locally in the browser and does not send captures to a server.
 
 - Password fields and controls whose context looks like credentials, tokens, authentication codes or secrets are never intentionally read.
 - Recognizable Bearer tokens, JWTs and common API-key formats are removed from exported text.
-- URL query parameters and fragments are always omitted.
+- URL query parameters and fragments are omitted from ordinary URL output. Tab exploration may report a same-page tab hash as state metadata.
 - With masking enabled, common personal data patterns and values from ordinary text-entry fields are masked.
 - File contents and local file paths are not collected.
 - Cookies, localStorage, sessionStorage, request headers, network bodies and password-manager data are not read.
