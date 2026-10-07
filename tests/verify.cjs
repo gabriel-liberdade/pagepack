@@ -6,8 +6,9 @@ const assert = require('node:assert/strict');
 const dir = path.resolve(__dirname, '..');
 
 (async () => {
-  const executablePath = process.env.CHROME_PATH || '/usr/bin/chromium';
-  const browser = await chromium.launch({ executablePath, headless: true, args: ['--no-sandbox'] });
+  const launchOptions = { headless: true, args: ['--no-sandbox'] };
+  if (process.env.CHROME_PATH) launchOptions.executablePath = process.env.CHROME_PATH;
+  const browser = await chromium.launch(launchOptions);
   try {
     const page = await browser.newPage();
     await page.route('https://fixture.test/**', route => route.fulfill({ contentType: 'text/html; charset=utf-8', body: `
