@@ -54,6 +54,14 @@ const dir = path.resolve(__dirname, '..');
       <section role="tabpanel" id="href-panel-1" aria-labelledby="href-1">Same duplicated content</section>
       <section role="tabpanel" id="href-panel-2" aria-labelledby="href-2" hidden>Same duplicated content</section>
 
+      <h2>ARIA-only tabs</h2>
+      <div id="aria-only-tabs">
+        <button type="button" id="aria-only-1" aria-selected="true" aria-controls="aria-only-panel-1">ARIA only first</button>
+        <button type="button" id="aria-only-2" aria-selected="false" aria-controls="aria-only-panel-2">ARIA only second</button>
+      </div>
+      <section id="aria-only-panel-1">ARIA-only first body</section>
+      <section id="aria-only-panel-2" hidden>ARIA-only second body</section>
+
       <script>
         function activate(tab, tablist, panel) {
           for (const other of tablist.querySelectorAll('[role="tab"]')) other.setAttribute('aria-selected', String(other === tab));
@@ -80,6 +88,23 @@ const dir = path.resolve(__dirname, '..');
         const hrefTabs = document.getElementById('href-tabs');
         document.getElementById('href-1').onclick = () => activate(document.getElementById('href-1'), hrefTabs, document.getElementById('href-panel-1'));
         document.getElementById('href-2').onclick = () => activate(document.getElementById('href-2'), hrefTabs, document.getElementById('href-panel-2'));
+
+        const ariaOnly1 = document.getElementById('aria-only-1');
+        const ariaOnly2 = document.getElementById('aria-only-2');
+        const ariaOnlyPanel1 = document.getElementById('aria-only-panel-1');
+        const ariaOnlyPanel2 = document.getElementById('aria-only-panel-2');
+        ariaOnly1.onclick = () => {
+          ariaOnly1.setAttribute('aria-selected', 'true');
+          ariaOnly2.setAttribute('aria-selected', 'false');
+          ariaOnlyPanel1.hidden = false;
+          ariaOnlyPanel2.hidden = true;
+        };
+        ariaOnly2.onclick = () => {
+          ariaOnly1.setAttribute('aria-selected', 'false');
+          ariaOnly2.setAttribute('aria-selected', 'true');
+          ariaOnlyPanel1.hidden = true;
+          ariaOnlyPanel2.hidden = false;
+        };
       </script>
     ` }));
     await page.goto('https://fixture.test/start?token=SECRET#fragment');
@@ -111,6 +136,8 @@ const dir = path.resolve(__dirname, '..');
     assert(result.includes('Async content loaded after click'));
     assert(result.includes('Nested content one'));
     assert(result.includes('Nested content two'));
+    assert(result.includes('ARIA-only second body'));
+    assert(result.includes('--- TAB: ARIA only second ---'));
     assert(result.includes('Same duplicated content'));
     assert(result.includes('duplicate of tab'));
     assert(result.includes('Disabled tab'));
