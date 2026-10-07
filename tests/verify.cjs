@@ -22,11 +22,69 @@ const dir = path.resolve(__dirname, '..');
       <div id="visibility-options" role="listbox" hidden><div role="option" aria-selected="true">Public</div><div role="option">Private</div></div>
       <input type="password" aria-label="Password" value="NEVER_READ_PASSWORD">
       <p>Bearer abcdefghijklmnop</p>
+
+      <h2>ARIA controls tabs</h2>
+      <div role="tablist" aria-label="Primary tabs" id="primary-tabs">
+        <button type="button" role="tab" id="primary-1" aria-selected="true" aria-controls="panel-1">Overview</button>
+        <button type="button" role="tab" id="primary-2" aria-selected="false" aria-controls="panel-2">Details</button>
+        <button type="button" role="tab" id="primary-3" aria-selected="false" aria-controls="panel-3">Async data</button>
+        <button type="button" role="tab" id="primary-disabled" aria-selected="false" aria-controls="panel-disabled" aria-disabled="true">Disabled tab</button>
+        <button type="button" role="tab" id="primary-noop" aria-selected="false" aria-controls="panel-noop">Unresponsive tab</button>
+      </div>
+      <section role="tabpanel" id="panel-1" aria-labelledby="primary-1">
+        Overview content
+        <div role="tablist" aria-label="Nested tabs" id="nested-tabs">
+          <button type="button" role="tab" id="nested-1" aria-selected="true" aria-controls="nested-panel-1">Nested first</button>
+          <button type="button" role="tab" id="nested-2" aria-selected="false" aria-controls="nested-panel-2">Nested second</button>
+        </div>
+        <div role="tabpanel" id="nested-panel-1" aria-labelledby="nested-1">Nested content one</div>
+        <div role="tabpanel" id="nested-panel-2" aria-labelledby="nested-2" hidden>Nested content two</div>
+      </section>
+      <section role="tabpanel" id="panel-2" aria-labelledby="primary-2" hidden>Details content from second tab</section>
+      <section role="tabpanel" id="panel-3" aria-labelledby="primary-3" hidden>Waiting for async content</section>
+      <section role="tabpanel" id="panel-disabled" aria-labelledby="primary-disabled" hidden>Disabled content must not be clicked</section>
+      <section role="tabpanel" id="panel-noop" aria-labelledby="primary-noop" hidden>Unresponsive content must stay hidden</section>
+
+      <h2>Href tabs</h2>
+      <div role="tablist" aria-label="Href tabs" id="href-tabs">
+        <a role="tab" id="href-1" aria-selected="true" href="#href-panel-1">Hash alpha</a>
+        <a role="tab" id="href-2" aria-selected="false" href="#href-panel-2">Hash beta</a>
+      </div>
+      <section role="tabpanel" id="href-panel-1" aria-labelledby="href-1">Same duplicated content</section>
+      <section role="tabpanel" id="href-panel-2" aria-labelledby="href-2" hidden>Same duplicated content</section>
+
+      <script>
+        function activate(tab, tablist, panel) {
+          for (const other of tablist.querySelectorAll('[role="tab"]')) other.setAttribute('aria-selected', String(other === tab));
+          const ids = [...tablist.querySelectorAll('[role="tab"]')]
+            .map(item => item.getAttribute('aria-controls') || (item.getAttribute('href') || '').replace(/^#/, ''))
+            .filter(Boolean);
+          for (const id of ids) {
+            const node = document.getElementById(id);
+            if (node) node.hidden = node !== panel;
+          }
+        }
+        const primaryTabs = document.getElementById('primary-tabs');
+        document.getElementById('primary-1').onclick = () => activate(document.getElementById('primary-1'), primaryTabs, document.getElementById('panel-1'));
+        document.getElementById('primary-2').onclick = () => activate(document.getElementById('primary-2'), primaryTabs, document.getElementById('panel-2'));
+        document.getElementById('primary-3').onclick = () => setTimeout(() => {
+          document.getElementById('panel-3').textContent = 'Async content loaded after click';
+          activate(document.getElementById('primary-3'), primaryTabs, document.getElementById('panel-3'));
+        }, 120);
+
+        const nestedTabs = document.getElementById('nested-tabs');
+        document.getElementById('nested-1').onclick = () => activate(document.getElementById('nested-1'), nestedTabs, document.getElementById('nested-panel-1'));
+        document.getElementById('nested-2').onclick = () => activate(document.getElementById('nested-2'), nestedTabs, document.getElementById('nested-panel-2'));
+
+        const hrefTabs = document.getElementById('href-tabs');
+        document.getElementById('href-1').onclick = () => activate(document.getElementById('href-1'), hrefTabs, document.getElementById('href-panel-1'));
+        document.getElementById('href-2').onclick = () => activate(document.getElementById('href-2'), hrefTabs, document.getElementById('href-panel-2'));
+      </script>
     ` }));
     await page.goto('https://fixture.test/start?token=SECRET#fragment');
 
     const source = fs.readFileSync(path.join(dir, 'extractor.js'), 'utf8');
-    const result = await page.evaluate(`(async () => { ${source}\nreturn await extractPage(true, false); })()`);
+    const result = await page.evaluate(`(async () => { ${source}\nreturn await extractPage(true, false, true); })()`);
 
     assert(result.includes('PAGEPACK FRAME'));
     assert(result.includes('[INTERACTIVE MAP'));
@@ -45,12 +103,28 @@ const dir = path.resolve(__dirname, '..');
     assert(result.includes('?[PARAMETERS OMITTED]'));
     assert(result.includes('#[FRAGMENT OMITTED]'));
 
+    assert(result.includes('Tab exploration: ON.'));
+    assert(result.includes('[TAB EXPLORATION]'));
+    assert(result.includes('--- TAB: Overview ---'));
+    assert(result.includes('Details content from second tab'));
+    assert(result.includes('Async content loaded after click'));
+    assert(result.includes('Nested content one'));
+    assert(result.includes('Nested content two'));
+    assert(result.includes('Same duplicated content'));
+    assert(result.includes('duplicate of tab'));
+    assert(result.includes('Disabled tab'));
+    assert(result.includes('Unresponsive tab'));
+    assert(result.includes('capture failed'));
+    assert.equal(await page.locator('#primary-1').getAttribute('aria-selected'), 'true');
+    assert.equal(await page.locator('#nested-1').getAttribute('aria-selected'), 'true');
+    assert.equal(new URL(page.url()).hash, '#fragment');
+
     const manifest = JSON.parse(fs.readFileSync(path.join(dir, 'manifest.json'), 'utf8'));
     assert.equal(manifest.name, 'PagePack');
-    assert.equal(manifest.version, '2.0.0');
+    assert.equal(manifest.version, '2.1.0');
     assert.equal(manifest.manifest_version, 3);
 
-    console.log('PASS: interactive map, options, state, masking and manifest.');
+    console.log('PASS: map, masking, dropdowns, robust tab exploration, nested tabs, deduplication and state restoration.');
   } finally {
     await browser.close();
   }
