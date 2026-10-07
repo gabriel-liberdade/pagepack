@@ -325,22 +325,29 @@ async function extractPage(mask = true, revealMenus = false, exploreTabs = true)
   }
 
   function tabTargetId(tab) {
-    const direct = (tab.getAttribute('aria-controls') || '').trim().split(/\s+/).filter(Boolean)[0];
-    if (direct) return direct;
+    const candidates = [];
+    const ariaIds = (tab.getAttribute('aria-controls') || '').trim().split(/\s+/).filter(Boolean);
+    candidates.push(...ariaIds);
     for (const attr of ['data-bs-target', 'data-target', 'href']) {
       const value = (tab.getAttribute(attr) || '').trim();
       if (!value) continue;
       if (value.startsWith('#') && value.length > 1) {
-        try { return decodeURIComponent(value.slice(1)); } catch { return value.slice(1); }
+        try { candidates.push(decodeURIComponent(value.slice(1))); } catch { candidates.push(value.slice(1)); }
+        continue;
       }
       if (attr === 'href') {
         try {
           const url = new URL(value, location.href);
           if (url.origin === location.origin && url.pathname === location.pathname && url.search === location.search && url.hash.length > 1) {
-            try { return decodeURIComponent(url.hash.slice(1)); } catch { return url.hash.slice(1); }
+            try { candidates.push(decodeURIComponent(url.hash.slice(1))); } catch { candidates.push(url.hash.slice(1)); }
           }
         } catch { /* ignore invalid href */ }
       }
+    }
+    for (const id of [...new Set(candidates.filter(Boolean))]) {
+      const resolved = elementByIdAcrossRoots(id, tab);
+      if (!resolved) return id;
+      if (resolved !== tab && resolved.getAttribute?.('role') !== 'tab') return id;
     }
     return '';
   }
@@ -375,10 +382,15 @@ async function extractPage(mask = true, revealMenus = false, exploreTabs = true)
   }
 
   function tabLooksActive(tab, panel) {
-    if (tab.getAttribute('aria-selected') === 'true') return true;
+    const tabClassActive = tab.classList.contains('active') || tab.classList.contains('is-active') || tab.classList.contains('selected');
+    if (tabClassActive) return true;
+    if (panel) {
+      const panelClassActive = panel.classList?.contains('active') || panel.classList?.contains('show') || panel.classList?.contains('is-active') || panel.classList?.contains('selected');
+      if (!visible(panel) || panel.getAttribute('aria-hidden') === 'true') return false;
+      return !!panelClassActive || tab.getAttribute('aria-selected') === 'true' || panel.getAttribute('aria-hidden') === 'false';
+    }
     if (tab.getAttribute('aria-current') === 'page') return true;
-    if (tab.classList.contains('active') || tab.classList.contains('is-active') || tab.classList.contains('selected')) return true;
-    return !!panel && visible(panel) && (panel.getAttribute('aria-hidden') !== 'true');
+    return tab.getAttribute('aria-selected') === 'true';
   }
 
   function tabInteractionSafe(tab) {
@@ -421,6 +433,10 @@ async function extractPage(mask = true, revealMenus = false, exploreTabs = true)
     let panel = resolveTabPanel(tab, group, tabs);
     const beforePanelVisible = !!panel && visible(panel);
     const beforePanelText = panel ? textOf(panel, true).replace(/\s+/g, ' ').trim() : '';
+    const beforeAriaSelected = tab.getAttribute('aria-selected');
+    const beforeTabClassActive = tab.classList.contains('active') || tab.classList.contains('is-active') || tab.classList.contains('selected');
+    const clearlyAlreadyActive = beforeTabClassActive || (beforePanelVisible && tabLooksActive(tab, panel));
+    if (clearlyAlreadyActive) return { ok: true, panel, reason: '' };
     const fallbackRoot = captureScopeForGroup(group);
     const beforeFallbackText = fallbackRoot ? textOf(fallbackRoot).replace(/\s+/g, ' ').trim() : '';
     let lastMutation = performance.now();
@@ -451,7 +467,12 @@ async function extractPage(mask = true, revealMenus = false, exploreTabs = true)
       const panelVisible = !!panel && visible(panel);
       const panelText = panel ? textOf(panel, true).replace(/\s+/g, ' ').trim() : '';
       const fallbackText = fallbackRoot ? textOf(fallbackRoot).replace(/\s+/g, ' ').trim() : '';
-      const evidence = tabLooksActive(tab, panel)
+      const tabClassActive = tab.classList.contains('active') || tab.classList.contains('is-active') || tab.classList.contains('selected');
+      const selectionChanged = beforeAriaSelected !== 'true' && tab.getAttribute('aria-selected') === 'true';
+      const activeEvidence = panel
+        ? tabLooksActive(tab, panel)
+        : ((!beforeTabClassActive && tabClassActive) || selectionChanged);
+      const evidence = activeEvidence
         || (!!panel && panelVisible && !beforePanelVisible)
         || (!!panel && panelText !== beforePanelText)
         || location.hash !== beforeHash
@@ -496,8 +517,16 @@ async function extractPage(mask = true, revealMenus = false, exploreTabs = true)
       tabState.groups++;
       const groupNumber = tabState.groups;
       const originalHref = location.href;
-      let originalTab = tabs.find(tab => tabLooksActive(tab, resolveTabPanel(tab, group, tabs)));
-      if (!originalTab) originalTab = tabs.find(tab => tab.getAttribute('aria-selected') === 'true') || null;
+      let originalTab = tabs.find(tab => {
+        const panel = resolveTabPanel(tab, group, tabs);
+        const tabClassActive = tab.classList.contains('active') || tab.classList.contains('is-active') || tab.classList.contains('selected');
+        const panelClassActive = panel && (panel.classList?.contains('active') || panel.classList?.contains('show') || panel.classList?.contains('is-active') || panel.classList?.contains('selected'));
+        return tabClassActive || (!!panel && visible(panel) && !!panelClassActive);
+      });
+      if (!originalTab) originalTab = tabs.find(tab => {
+        const panel = resolveTabPanel(tab, group, tabs);
+        return tab.getAttribute('aria-selected') === 'true' && (!panel || visible(panel));
+      }) || null;
       const seenContent = new Map();
       tabState.lines.push('TAB GROUP ' + groupNumber + ' | depth=' + depth + ' | tabs=' + tabs.length);
       if (!originalTab) {
