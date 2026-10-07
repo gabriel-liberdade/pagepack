@@ -14,12 +14,40 @@ const dir = path.resolve(__dirname, '..');
     });
     await page.waitForLoadState('networkidle', { timeout: 10000 }).catch(() => {});
 
+    const diagnostics = await page.evaluate(() => {
+      const wanted = ['Product Names', 'Fair Use and Copyright', 'Trademarks', 'Licensing and Terms of Use'];
+      const tabs = [...document.querySelectorAll('[role="tab"]')]
+        .filter(tab => wanted.includes((tab.textContent || '').trim()))
+        .map(tab => ({
+          text: (tab.textContent || '').trim(),
+          id: tab.id,
+          ariaControls: tab.getAttribute('aria-controls'),
+          href: tab.getAttribute('href'),
+          parent: tab.parentElement?.outerHTML?.slice(0, 1000) || ''
+        }));
+      const panels = [...document.querySelectorAll('[role="tabpanel"], [id^="tab1-"]')]
+        .map(panel => ({
+          tag: panel.tagName,
+          id: panel.id,
+          role: panel.getAttribute('role'),
+          labelledby: panel.getAttribute('aria-labelledby'),
+          classes: panel.className,
+          text: (panel.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 400)
+        }));
+      return { tabs, panels };
+    });
+    console.log('ANSYS DIAGNOSTICS ' + JSON.stringify(diagnostics));
+
     const source = fs.readFileSync(path.join(dir, 'extractor.js'), 'utf8');
     const result = await page.evaluate('(async () => { ' + source + '\nreturn await extractPage(false, false, true); })()');
 
     for (const name of ['Product Names', 'Fair Use and Copyright', 'Trademarks', 'Licensing and Terms of Use']) {
       assert(result.includes('--- TAB: ' + name + ' ---'), 'Missing tab capture: ' + name);
     }
+    assert(result.includes('Because the Ansys portfolio contains a wide range of products'), 'Product Names body was not captured.');
+    assert(result.includes('Academic users'), 'Fair Use and Copyright body was not captured.');
+    assert(result.includes('Ansys trademarks its product names'), 'Trademarks body was not captured.');
+    assert(result.includes('may not be used for any commercial activity'), 'Licensing and Terms of Use body was not captured.');
     assert(result.includes('Tab exploration: ON.'));
     assert(!result.includes('Tab states captured: 0'));
 
