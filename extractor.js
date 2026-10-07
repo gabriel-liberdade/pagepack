@@ -284,7 +284,10 @@ async function extractPage(mask = true, revealMenus = false, exploreTabs = true)
     if (tab.getAttribute('role') === 'tab') return true;
     if (tab.getAttribute('data-bs-toggle') === 'tab' || tab.getAttribute('data-toggle') === 'tab') return true;
     const tablist = tab.closest('[role="tablist"]');
-    if (tablist && tab.matches('button,a[href],[aria-controls]')) return true;
+    if (tablist && tab.matches('button,a[href],[aria-controls]')) {
+      const href = (tab.getAttribute('href') || '').trim();
+      if (tab.hasAttribute('aria-controls') || tab.hasAttribute('aria-selected') || href.startsWith('#')) return true;
+    }
     return ['BUTTON', 'A'].includes(tab.tagName) && tab.hasAttribute('aria-controls') && tab.hasAttribute('aria-selected');
   }
 
@@ -497,6 +500,14 @@ async function extractPage(mask = true, revealMenus = false, exploreTabs = true)
       if (!originalTab) originalTab = tabs.find(tab => tab.getAttribute('aria-selected') === 'true') || null;
       const seenContent = new Map();
       tabState.lines.push('TAB GROUP ' + groupNumber + ' | depth=' + depth + ' | tabs=' + tabs.length);
+      if (!originalTab) {
+        tabState.notes.push('Tab group ' + groupNumber + ': detected but not explored because the original selected tab could not be determined safely.');
+        continue;
+      }
+      if (!tabInteractionSafe(originalTab)) {
+        tabState.notes.push('Tab group ' + groupNumber + ': detected but not explored because restoring the original tab would fail interaction safety checks.');
+        continue;
+      }
 
       for (const tab of tabs) {
         if (tabState.statesVisited >= tabState.maxStates) {
