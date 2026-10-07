@@ -1,0 +1,22 @@
+name: PagePack tests
+
+on:
+  push:
+    branches:
+      - feature/automatic-tab-exploration
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install --no-save playwright
+      - run: npx playwright install --with-deps chromium
+      - run: node --check extractor.js && node --check frames.js && node --check popup.js && node --check tests/verify.cjs && node --check tests/verify-ansys.cjs
+      - run: node tests/verify.cjs
+      - run: node tests/verify-ansys.cjs
