@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - feature/automatic-tab-exploration
+      - fix/expandable-panels-preferences
+  pull_request:
+    branches: [main]
   workflow_dispatch:
 
 jobs:
@@ -18,5 +21,7 @@ jobs:
       - run: npm install --no-save playwright
       - run: npx playwright install --with-deps chromium
       - run: node --check extractor.js && node --check frames.js && node --check popup.js && node --check tests/verify.cjs && node --check tests/verify-ansys.cjs
+      - run: node tests/verify-preferences.cjs
+      - run: node tests/verify-accordions.cjs
       - run: node tests/verify.cjs
       - run: node tests/verify-ansys.cjs
