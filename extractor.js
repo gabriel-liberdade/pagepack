@@ -1,5 +1,5 @@
 /* Self-contained: chrome.scripting serializes this function into the active tab. */
-async function extractPage(mask = true, revealMenus = false, exploreTabs = true) {
+async function extractPage(mask = true, revealMenus = false, exploreTabs = true, exploreAccordions = true, accordionLimits = {}) {
   const omitted = '[EXCLUDED: credential]';
   const masked = '[MASKED]';
   const secretKey = /password|passwd|senha|passphrase|token|secret|credential|credencial|authorization|api[-_\s]?key|access[-_\s]?key|session[-_\s]?(?:id|key)|csrf|xsrf|otp|one[-_\s]?time|verification[-_\s]?code|c[oó]digo.*(?:acesso|verifica|autentica)|login|username|usu[aá]rio/i;
@@ -505,6 +505,118 @@ async function extractPage(mask = true, revealMenus = false, exploreTabs = true)
     } catch { /* best effort */ }
   }
 
+  // Limits are configurable for callers without adding extra popup controls.
+  const accordionState = { found: 0, captured: 0, failed: 0, skipped: 0, lines: [],
+    maxDepth: Math.max(1, Math.min(10, Number(accordionLimits.maxDepth) || 5)),
+    maxPanels: Math.max(1, Math.min(500, Number(accordionLimits.maxPanels) || 250)),
+    deadline: performance.now() + Math.max(1000, Math.min(60000, Number(accordionLimits.maxTimeMs) || 20000)) };
+  const panelsHandledInTabs = new WeakSet();
+  const accordionSelector = 'summary,[aria-expanded]:not([role="tab"]):not([role="combobox"]):not([aria-haspopup]),button[aria-controls],[role="button"][aria-controls]';
+  function expandableTarget(control) {
+    if (control.tagName === 'SUMMARY' && control.parentElement?.tagName === 'DETAILS') return control.parentElement;
+    const id = (control.getAttribute('aria-controls') || '').trim();
+    if (id && !/\s/.test(id)) return control.getRootNode().getElementById?.(id) || null;
+    // Without an explicit relationship, accept only an adjacent, labelled panel.
+    const sibling = control.nextElementSibling;
+    return sibling && control.id && (sibling.getAttribute('aria-labelledby') || '').split(/\s+/).includes(control.id) ? sibling : null;
+  }
+  function expandableSafe(control) {
+    return !control.disabled && control.getAttribute('aria-disabled') !== 'true'
+      && !control.matches('a,input,select,[role="checkbox"],[role="switch"],[role="menuitem"]')
+      && !control.closest('[role="tablist"],[role="menu"],[role="listbox"]')
+      && !(control.tagName === 'BUTTON' && control.closest('form') && control.type !== 'button')
+      && !/(\b)(buy|comprar|delete|excluir|remove|remover|submit|enviar|pay|pagar|login|download|baixar)(\b)/i.test(labelOf(control));
+  }
+  function panelBody(panel, control) {
+    if (panel.tagName !== 'DETAILS') return clean(textOf(panel));
+    return clean([...panel.childNodes].filter(node => node !== control).map(node =>
+      node.nodeType === 3 ? node.textContent : node.nodeType === 1 && !(node.tagName === 'DETAILS' && !node.open) ? textOf(node) : '').join(' ')).trim();
+  }
+  async function explorePanels(scope, context) {
+    if (!exploreAccordions || !scope) return;
+    const seen = new Set();
+    const contentSeen = new Map();
+    const changes = [];
+    const initiallyOpen = [];
+    const initialHref = location.href;
+    try {
+      for (;;) {
+        refreshRoots();
+        const candidates = all(accordionSelector).filter(el => (scope === document || scope.contains(el) || el.getRootNode().host && scope.contains(el.getRootNode().host)) && visible(el) && !seen.has(el) && (context !== "Current page" || !panelsHandledInTabs.has(el)));
+        if (!candidates.length) break;
+        for (const control of candidates) {
+          seen.add(control);
+          if (context !== "Current page") panelsHandledInTabs.add(control);
+          const panel = expandableTarget(control);
+          const name = clean(labelOf(control));
+          accordionState.found++;
+          let depth = 1;
+          for (let parent = control.parentElement; parent && parent !== scope; parent = parent.parentElement) {
+            if (parent.tagName === 'DETAILS' && parent !== panel) depth++;
+            else if (parent.id && all('[aria-expanded][aria-controls]').some(el => el !== control && el.getAttribute('aria-controls') === parent.id)) depth++;
+          }
+          const native = panel?.tagName === 'DETAILS';
+          const initialOpen = native ? panel.open : control.hasAttribute('aria-expanded') ? control.getAttribute('aria-expanded') === 'true' : !!panel && visible(panel);
+          if (initialOpen && panel) initiallyOpen.push({ control, panel, native });
+          const prefix = `TAB: ${context} | Panel: "${name}" | initial=${initialOpen ? 'open' : 'closed'} | depth=${depth}`;
+          const skip = !panel ? 'no unambiguous associated panel' : !expandableSafe(control) ? 'unsafe or disabled control' : depth > accordionState.maxDepth ? 'depth limit' : accordionState.captured + accordionState.failed >= accordionState.maxPanels ? 'panel limit' : performance.now() >= accordionState.deadline ? 'time limit' : null;
+          if (skip) {
+            accordionState.skipped++;
+            accordionState.lines.push(prefix + ' | skipped: ' + skip);
+            continue;
+          }
+          try {
+            if (!initialOpen) {
+              changes.push({ control, panel, native });
+              control.click();
+            }
+            // Wait for actual content, and for DOM mutations to settle.
+            const started = performance.now();
+            let lastMutation = started;
+            const observer = new MutationObserver(() => { lastMutation = performance.now(); });
+            observer.observe(panel, { subtree: true, childList: true, attributes: true, characterData: true });
+            let body = '';
+            try {
+              while (performance.now() - started < 1200 && performance.now() < accordionState.deadline) {
+                await new Promise(resolve => setTimeout(resolve, 50));
+                const expanded = native ? panel.open : control.getAttribute('aria-expanded') === 'true' || (!panel.hidden && visible(panel));
+                body = expanded ? panelBody(panel, control) : '';
+                if (body && performance.now() - lastMutation >= 180) break;
+              }
+            } finally { observer.disconnect(); }
+            if (!body) throw new Error('no expanded panel content before timeout');
+            accordionState.captured++;
+            accordionState.lines.push(prefix + ' | captured');
+            if (contentSeen.has(body)) accordionState.lines.push('(duplicate of panel "' + contentSeen.get(body) + '")');
+            else { contentSeen.set(body, name); accordionState.lines.push(body); }
+          } catch (error) {
+            accordionState.failed++;
+            accordionState.lines.push(prefix + ' | failed: ' + clean(error.message));
+          }
+        }
+      }
+    } finally {
+      for (const { control, panel, native } of changes.reverse()) {
+        try {
+          if (native) panel.open = false;
+          else if (control.isConnected && (control.getAttribute('aria-expanded') === 'true' || visible(panel))) control.click();
+        } catch { accordionState.lines.push('Restoration failed: ' + clean(labelOf(control))); }
+      }
+      for (const { control, panel, native } of initiallyOpen) {
+        try {
+          if (native) panel.open = true;
+          else if (control.isConnected && (control.getAttribute('aria-expanded') === 'false' || !visible(panel))) control.click();
+        } catch { accordionState.lines.push('Restoration failed: ' + clean(labelOf(control))); }
+      }
+      if (location.href !== initialHref) {
+        try {
+          const before = new URL(initialHref), now = new URL(location.href);
+          if (before.origin === now.origin && before.pathname === now.pathname && before.search === now.search) history.replaceState(history.state, '', initialHref);
+        } catch { /* best effort */ }
+      }
+    }
+  }
+
   async function exploreTabGroups(scope = document, depth = 1) {
     if (!exploreTabs || depth > tabState.maxDepth || tabState.groups >= tabState.maxGroups || tabState.statesVisited >= tabState.maxStates) return;
     const groups = discoverTabGroups(scope);
@@ -568,6 +680,7 @@ async function extractPage(mask = true, revealMenus = false, exploreTabs = true)
           continue;
         }
 
+        await explorePanels(panel || captureScopeForGroup(group), name);
         const captured = tabContent(tab, panel, group);
         const text = captured.text;
         tabState.captured++;
@@ -593,6 +706,7 @@ async function extractPage(mask = true, revealMenus = false, exploreTabs = true)
   }
 
   if (exploreTabs) await exploreTabGroups(document, 1);
+  await explorePanels(document, "Current page");
 
   const interactiveElements = uniqueElements(all(interactiveSelector).filter(el => visible(el) && !el.matches(optionSelector)));
   const refMap = new Map(interactiveElements.map((el, index) => [el, `E${String(index + 1).padStart(3, '0')}`]));
@@ -604,6 +718,11 @@ async function extractPage(mask = true, revealMenus = false, exploreTabs = true)
     `Personal-data masking: ${mask ? 'ON' : 'OFF'}. Recognizable credentials are always excluded.`,
     `Custom dropdown exploration: ${revealMenus ? 'ON' : 'OFF'}.`,
     `Tab exploration: ${exploreTabs ? 'ON' : 'OFF'}.`,
+    `Accordion exploration: ${exploreAccordions ? 'ON' : 'OFF'}.`,
+    `Expandable panels found: ${accordionState.found}`,
+    `Expandable panels captured: ${accordionState.captured}`,
+    `Expandable panels failed: ${accordionState.failed}`,
+    `Expandable panels skipped: ${accordionState.skipped}`,
     `Tab groups found: ${tabState.groups}`,
     `Tab states captured: ${tabState.captured}`,
     `Tab states failed: ${tabState.failed}`,
@@ -691,6 +810,7 @@ async function extractPage(mask = true, revealMenus = false, exploreTabs = true)
   section('CUSTOM DROPDOWN OPTIONS', customOptionLines);
 
   section('DROPDOWN EXPLORATION NOTES', revealNotes);
+  section('ACCORDION EXPLORATION', accordionState.lines);
   section('TAB EXPLORATION', tabState.lines);
   section('TAB EXPLORATION NOTES', tabState.notes);
 
@@ -728,6 +848,6 @@ async function extractPage(mask = true, revealMenus = false, exploreTabs = true)
     return `${kind} | "${clean(labelOf(el))}"${open}`;
   }));
 
-  output.push('\n[FRAME LIMITS]', 'PagePack can map the webpage DOM and open shadow DOM, including off-screen rendered elements. It cannot inspect Brave/Chrome toolbar UI, closed shadow DOM, text rendered only in images/canvas, protected browser pages, or options/data the site has not loaded. Dropdown and tab exploration are best-effort and may temporarily change UI state.');
+  output.push('\n[FRAME LIMITS]', 'PagePack can map the webpage DOM and open shadow DOM, including off-screen rendered elements. It cannot inspect Brave/Chrome toolbar UI, closed shadow DOM, text rendered only in images/canvas, protected browser pages, or options/data the site has not loaded. Dropdown, tab and accordion exploration are best-effort and may temporarily change UI state.');
   return output.join('\n');
 }

@@ -4,10 +4,17 @@ const status = document.getElementById('status');
 const maskCheckbox = document.getElementById('mask');
 const tabsCheckbox = document.getElementById('tabs');
 
-maskCheckbox.checked = localStorage.getItem('pagepack-mask-personal-data') === 'true';
-maskCheckbox.addEventListener('change', () => {
-  localStorage.setItem('pagepack-mask-personal-data', String(maskCheckbox.checked));
-});
+// Save each preference immediately, even if the popup closes before export.
+for (const [id, key, fallback] of [
+  ['mask', 'pagepack-mask-personal-data', false],
+  ['reveal', 'pagepack-reveal-menus', false],
+  ['tabs', 'pagepack-explore-tabs', true]
+]) {
+  const checkbox = document.getElementById(id);
+  const saved = localStorage.getItem(key);
+  checkbox.checked = saved === null ? fallback : saved === 'true';
+  checkbox.addEventListener('change', () => localStorage.setItem(key, String(checkbox.checked)));
+}
 
 async function exportPage(action) {
   copyButton.disabled = saveButton.disabled = true;

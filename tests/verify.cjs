@@ -149,7 +149,7 @@ const dir = path.resolve(__dirname, '..');
 
     const manifest = JSON.parse(fs.readFileSync(path.join(dir, 'manifest.json'), 'utf8'));
     assert.equal(manifest.name, 'PagePack');
-    assert.equal(manifest.version, '2.1.0');
+    assert.equal(manifest.version, '2.2.0');
     assert.equal(manifest.manifest_version, 3);
 
     console.log('PASS: map, masking, dropdowns, robust tab exploration, nested tabs, deduplication and state restoration.');

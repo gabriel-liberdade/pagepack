@@ -76,9 +76,25 @@ This makes follow-up instructions much less ambiguous when a page contains repea
 
 ## Automatic tab exploration
 
-PagePack 2.1 can explore recognized tab interfaces instead of exporting only the tab that happens to be selected. It prioritizes ARIA tabs/tablists and common tab attributes, interacts only when the control has strong tab evidence, waits for tab/panel/DOM state to settle, captures each state, deduplicates identical content, limits nesting and total exploration, then attempts to restore the original tab and hash.
+PagePack 2.2 can explore recognized tab interfaces instead of exporting only the tab that happens to be selected. It prioritizes ARIA tabs/tablists and common tab attributes, interacts only when the control has strong tab evidence, waits for tab/panel/DOM state to settle, captures each state, deduplicates identical content, limits nesting and total exploration, then attempts to restore the original tab and hash.
 
-The feature is enabled by default and can be turned off in the popup. It does not intentionally follow links to another page or click generic action buttons.
+The feature is enabled by default and can be turned off with **Explorar abas e painéis automaticamente** in the popup. All three popup checkboxes remember their last state, including unchecked values. Masking and dropdown exploration remain off on first use. It does not intentionally follow links to another page or click generic action buttons.
+
+## Expandable panels
+
+Version 2.2 captures native details/summary and custom expandable panels with explicit ARIA relationships, independently within each recognized tab. It waits for content and DOM settling, records initial state and successful/failed/skipped captures, and attempts to restore original states. Generic “Mostrar” or “Ver mais” buttons are clicked only when a panel relationship can be established; labels alone are insufficient.
+
+The TXT includes an **ACCORDION EXPLORATION** section and panel counters. A summary appearing in the interactive map does not count as a successful capture. Duplicate panel bodies in the same tab are referenced instead of repeated.
+
+No additional popup option is required: **Explorar abas e painéis automaticamente** controls both operations. Internal limits default to 250 panels, depth 5 and a 20-second exploration budget per frame; callers of `extractPage` can configure `maxPanels`, `maxDepth` and `maxTimeMs` through its fifth argument. One panel waits at most 1.2 seconds. Content loaded after the timeout or panels without a reliable relationship may remain unavailable and are reported.
+
+Tests:
+
+```bash
+node tests/verify-preferences.cjs
+NODE_PATH="$CODEX_PRIMARY_RUNTIME_NODE_MODULES" node tests/verify.cjs
+NODE_PATH="$CODEX_PRIMARY_RUNTIME_NODE_MODULES" node tests/verify-accordions.cjs
+```
 
 ## Custom dropdown exploration
 
